@@ -15,7 +15,34 @@ TOPICS = [
     "Space exploration and astronomy discoveries"
 ]
 
+def find_active_gemini_model():
+    # Google API se directly active supported models ki list nikalte hain
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}"
+    res = requests.get(url).json()
+
+    if "models" not in res:
+        raise Exception(f"Invalid API Key or API error: {res.get('error', {}).get('message', res)}")
+
+    # Jo model generateContent support karta ho use choose karein
+    for m in res["models"]:
+        name = m.get("name", "")
+        methods = m.get("supportedGenerationMethods", [])
+        if "generateContent" in methods:
+            # Prefers flash or default models
+            if "flash" in name:
+                return name
+    
+    # Fallback to first capable model
+    for m in res["models"]:
+        if "generateContent" in m.get("supportedGenerationMethods", []):
+            return m.get("name")
+
+    raise Exception("No content generation model found for this key.")
+
 def get_caption_and_prompt(topic: str):
+    model_name = find_active_gemini_model()
+    print(f"Using dynamically detected model: {model_name}")
+
     prompt_text = f"""
     Create a high-engagement Facebook post about: '{topic}'.
     Format response strictly like this:
@@ -29,25 +56,14 @@ def get_caption_and_prompt(topic: str):
         }]
     }
 
-    # Direct Google REST API endpoints (No SDK issues)
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
-    text = None
+    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={GEMINI_KEY}"
+    response = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
+    res_json = response.json()
 
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_KEY}"
-        headers = {"Content-Type": "application/json"}
-        response = requests.post(url, json=payload, headers=headers)
-        res_json = response.json()
+    if "candidates" not in res_json:
+        raise Exception(f"Gemini error: {res_json.get('error', {}).get('message', res_json)}")
 
-        if "candidates" in res_json:
-            text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-            break
-        else:
-            print(f"Tried {model_name}, error: {res_json.get('error', {}).get('message', res_json)}")
-
-    if not text:
-        raise Exception("Gemini API call failed across all models. Please check GEMINI_API_KEY.")
-
+    text = res_json["candidates"][0]["content"]["parts"][0]["text"]
     caption = text.split("CAPTION:")[1].split("IMAGE_PROMPT:")[0].strip()
     img_prompt = text.split("IMAGE_PROMPT:")[1].strip()
     return caption, img_prompt
