@@ -1,1 +1,32 @@
 
+name: Auto Facebook Publisher
+
+on:
+  schedule:
+    # UTC 03:30 = Indian Standard Time (IST) 09:00 AM (Roz subah)
+    - cron: '30 3 * * *'
+  workflow_dispatch: # GitHub dashboard par 'Run workflow' click karke manually test karne ke liye
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Auto Poster
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+        run: python main.py
