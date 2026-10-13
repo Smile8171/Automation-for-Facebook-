@@ -26,9 +26,9 @@ def get_caption_and_prompt(topic: str):
     IMAGE_PROMPT: [Write a concise, vivid image prompt under 30 words]
     """
     
-    # Official recommend model: gemini-2.5-flash
+    # Official updated model: gemini-3.0-flash
     response = gemini_client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.0-flash',
         contents=prompt
     )
     text = response.text
