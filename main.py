@@ -26,8 +26,9 @@ def get_caption_and_prompt(topic: str):
     IMAGE_PROMPT: [Write a concise, vivid image prompt under 30 words]
     """
     
+    # gemini-2.0-flash is official and supported on google-genai
     response = gemini_client.models.generate_content(
-        model='gemini-1.5-flash',
+        model='gemini-2.0-flash',
         contents=prompt
     )
     text = response.text
@@ -37,7 +38,7 @@ def get_caption_and_prompt(topic: str):
     return caption, img_prompt
 
 def generate_image_free(prompt: str) -> str:
-    # 100% Free AI Image Generation API (Pollinations Flux/SD)
+    # Free AI Image generation URL
     encoded_prompt = urllib.parse.quote(prompt)
     image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
     return image_url
