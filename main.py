@@ -1,19 +1,15 @@
 import os
 import random
+import urllib.parse
 import requests
-from openai import OpenAI
 from google import genai
 
-# Environments
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 FB_PAGE_ID = os.getenv("FB_PAGE_ID")
 FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")
 
-openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 gemini_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
-# Topic pool - AI roz inme se ek choose karega ya randomly rotate hoga
 TOPICS = [
     "Latest AI breakthroughs and futuristic gadgets",
     "Car maintenance, engine health and automotive DIY hacks",
@@ -24,41 +20,27 @@ TOPICS = [
 
 def get_caption_and_prompt(topic: str):
     prompt = f"""
-    You are a viral social media manager.
     Create a high-engagement Facebook post about: '{topic}'.
-    Format response EXACTLY like this:
-    CAPTION: [Write engaging caption with line breaks, hooks, and 4-5 relevant hashtags]
-    IMAGE_PROMPT: [Write a hyper-detailed 1:1 photorealistic digital art prompt for DALL-E 3]
+    Format response strictly like this:
+    CAPTION: [Write engaging caption with emojis and 4-5 hashtags]
+    IMAGE_PROMPT: [Write a concise, vivid image prompt under 30 words]
     """
     
-    try:
-        response = gemini_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
-        )
-        text = response.text
-    except Exception as e:
-        print(f"Gemini fallback trigger: {e}")
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        text = response.choices[0].message.content
+    response = gemini_client.models.generate_content(
+        model='gemini-1.5-flash',
+        contents=prompt
+    )
+    text = response.text
 
     caption = text.split("CAPTION:")[1].split("IMAGE_PROMPT:")[0].strip()
     img_prompt = text.split("IMAGE_PROMPT:")[1].strip()
     return caption, img_prompt
 
-def generate_image(image_prompt: str) -> str:
-    print("Generating image via DALL-E 3...")
-    res = openai_client.images.generate(
-        model="dall-e-3",
-        prompt=image_prompt,
-        size="1024x1024",
-        quality="standard",
-        n=1
-    )
-    return res.data[0].url
+def generate_image_free(prompt: str) -> str:
+    # 100% Free AI Image Generation API (Pollinations Flux/SD)
+    encoded_prompt = urllib.parse.quote(prompt)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+    return image_url
 
 def post_to_facebook(img_url: str, caption: str):
     url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/photos"
@@ -78,5 +60,5 @@ if __name__ == "__main__":
     selected_topic = random.choice(TOPICS)
     print(f"Today's Topic: {selected_topic}")
     caption, img_prompt = get_caption_and_prompt(selected_topic)
-    img_url = generate_image(img_prompt)
+    img_url = generate_image_free(img_prompt)
     post_to_facebook(img_url, caption)
