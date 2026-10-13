@@ -2,13 +2,14 @@ import os
 import random
 import urllib.parse
 import requests
-from google import genai
+import google.generativeai as genai
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 FB_PAGE_ID = os.getenv("FB_PAGE_ID")
 FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")
 
-gemini_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
 
 TOPICS = [
     "Latest AI breakthroughs and futuristic gadgets",
@@ -26,12 +27,22 @@ def get_caption_and_prompt(topic: str):
     IMAGE_PROMPT: [Write a concise, vivid image prompt under 30 words]
     """
     
-    # Official updated model: gemini-3.0-flash
-    response = gemini_client.models.generate_content(
-        model='gemini-3.0-flash',
-        contents=prompt
-    )
-    text = response.text
+    # Stable models fallback list
+    candidate_models = ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-pro']
+    text = ""
+    
+    for m in candidate_models:
+        try:
+            model = genai.GenerativeModel(m)
+            response = model.generate_content(prompt)
+            text = response.text
+            if text:
+                break
+        except Exception:
+            continue
+            
+    if not text:
+        raise Exception("Unable to get response from Gemini models.")
 
     caption = text.split("CAPTION:")[1].split("IMAGE_PROMPT:")[0].strip()
     img_prompt = text.split("IMAGE_PROMPT:")[1].strip()
