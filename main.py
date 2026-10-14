@@ -18,7 +18,6 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 def get_retry_session():
-    """Network connection fail ya drop hone par automatic 3 baar retry karega"""
     session = requests.Session()
     retries = Retry(
         total=3,
@@ -30,7 +29,6 @@ def get_retry_session():
     return session
 
 def load_posted_history():
-    """Purani post ho chuki photos ki list nikalta hai"""
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r") as f:
@@ -40,7 +38,6 @@ def load_posted_history():
     return []
 
 def save_posted_history(history):
-    """Nayi post hui photo ka naam file mein save karta hai"""
     try:
         with open(HISTORY_FILE, "w") as f:
             json.dump(history, f, indent=2)
@@ -48,7 +45,6 @@ def save_posted_history(history):
         print(f"History save notice: {e}")
 
 def pick_reference_image(folder_path="references"):
-    """Bina repeat kiye references folder se ek photo select karta hai"""
     if not os.path.exists(folder_path):
         raise FileNotFoundError(f"Folder '{folder_path}' nahi mila!")
 
@@ -61,9 +57,8 @@ def pick_reference_image(folder_path="references"):
     history = load_posted_history()
     available_photos = [p for p in all_photos if p not in history]
 
-    # Agar saari photos post ho chuki hon, toh history reset kar do
     if not available_photos:
-        print("Saari photos ka ek round complete. Cycle reset...")
+        print("Cycle reset ho raha hai...")
         history = []
         available_photos = all_photos
 
@@ -76,9 +71,9 @@ def pick_reference_image(folder_path="references"):
     return full_path
 
 def describe_reference_and_make_prompt(ref_image_path, topic):
-    """Reference photo ke visual features maintain rakhte hue HD prompt banata hai"""
+    """Gemini 1.5 Flash se visual HD prompt banata hai"""
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         img = Image.open(ref_image_path)
         
         prompt = (
@@ -87,7 +82,7 @@ def describe_reference_and_make_prompt(ref_image_path, topic):
             "Strict Instructions: Maintain the exact same facial identity, age, and features as the reference image. "
             "Only change the posture, background, clothes, and lighting. "
             "Style: DSLR 85mm portrait, f/1.8 aperture, natural sunlight, highly detailed skin texture, 4k ultra-realistic photo. "
-            "Keep the prompt under 60 words, descriptive for FLUX.1. Output ONLY the raw prompt."
+            "Keep the prompt under 50 words. Output ONLY the raw prompt."
         )
         response = model.generate_content([prompt, img])
         img_prompt = response.text.strip().replace("\n", " ")
@@ -98,15 +93,24 @@ def describe_reference_and_make_prompt(ref_image_path, topic):
         return f"Hyper-realistic portrait photography, crisp focus, soft natural daylight, 8k resolution, cinematic lighting, themed on {topic}"
 
 def generate_ai_image(image_prompt, output_path="generated_post.jpg"):
-    """Hugging Face FLUX.1-schnell model se image generate aur download karta hai"""
+    """Hugging Face ke updated endpoint se image generate karta hai"""
     print("Generating High-Quality image with FLUX.1...")
     
-    api_url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    # Updated Hugging Face router URL (DNS resolution issue fixed)
+    api_url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {"inputs": image_prompt}
 
     session = get_retry_session()
     response = session.post(api_url, headers=headers, json=payload, timeout=120)
+
+    # Fallback to direct inference host agar router busy ho
+    if response.status_code != 200:
+        fallback_url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+        try:
+            response = session.post(fallback_url, headers=headers, json=payload, timeout=120)
+        except Exception:
+            pass
 
     if response.status_code == 200:
         with open(output_path, "wb") as f:
@@ -114,12 +118,12 @@ def generate_ai_image(image_prompt, output_path="generated_post.jpg"):
         print(f"HD Image generated and saved to {output_path}")
         return output_path
     else:
-        raise Exception(f"FLUX generation failed with HTTP {response.status_code}: {response.text}")
+        raise Exception(f"Image generation failed with status {response.status_code}: {response.text}")
 
 def generate_caption(topic):
-    """Romanized Hindi (Hinglish) mein Facebook caption banata hai"""
+    """Romanized Hindi (Hinglish) caption generate karta hai"""
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = (
             f"Write an engaging, positive Facebook post caption about: '{topic}'. "
             "STRICT RULES: Write entirely in Hindi using English letters/script (Hinglish). "
@@ -134,7 +138,6 @@ def generate_caption(topic):
         return "Har nayi subah ek nayi umeed aur nayi taazgi lekar aati hai! Apne sapno ke peeche lagatar mehnat karte raho. ✨ #NayiSubah #PositiveVibes #DailyMotivation #SelfGrowth"
 
 def post_to_facebook(image_path, caption):
-    """Facebook Page ke /{PAGE_ID}/photos endpoint par image upload karta hai"""
     print("Uploading to Facebook Page...")
 
     if not PAGE_ID or not PAGE_ACCESS_TOKEN:
@@ -159,10 +162,8 @@ def post_to_facebook(image_path, caption):
     return res
 
 def main():
-    # 1. Reference photo select karo
     ref_photo = pick_reference_image("references")
 
-    # 2. Daily Hinglish theme
     themes = [
         "Subah ki shuruat, positivity aur naye iraade",
         "Zindagi ki khoobsurti aur self-growth",
@@ -173,17 +174,11 @@ def main():
     topic = random.choice(themes)
     print(f"Today's Topic: {topic}")
 
-    # 3. Gemini se visual prompt banwao
     hd_prompt = describe_reference_and_make_prompt(ref_photo, topic)
-
-    # 4. FLUX.1 se HD photo generate karo
     img_path = generate_ai_image(hd_prompt, "generated_post.jpg")
-
-    # 5. Hinglish caption generate karo
     caption = generate_caption(topic)
     print(f"Caption ready:\n{caption}\n")
 
-    # 6. Facebook par upload karo aur temp file clean karo
     try:
         post_to_facebook(img_path, caption)
     finally:
