@@ -1,49 +1,64 @@
 import os
+import random
 import requests
 import google.generativeai as genai
 
-# 1. API Keys aur Environment Variables
+# Environment Variables / GitHub Secrets
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAGE_ID = os.getenv("PAGE_ID")
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 
-# Setup Gemini AI
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
+def pick_reference_image(folder_path="references"):
+    """Folder se image file pick karta hai"""
+    if not os.path.exists(folder_path):
+        raise FileNotFoundError(f"Folder '{folder_path}' nahi mila!")
+    
+    valid_exts = ('.jpg', '.jpeg', '.png', '.webp')
+    photos = [
+        os.path.join(folder_path, f) 
+        for f in os.listdir(folder_path) 
+        if f.lower().endswith(valid_exts)
+    ]
+    
+    if not photos:
+        raise ValueError(f"Folder '{folder_path}' mein koi photo nahi mili!")
+    
+    selected_photo = random.choice(photos)
+    print(f"Selected reference image: {selected_photo}")
+    return selected_photo
+
 def generate_caption(topic):
-    """Gemini AI se Facebook post ke liye caption generate karta hai"""
+    """Romanized Hindi (Hinglish) mein caption generate karta hai"""
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = (
-            f"Write an engaging, insightful Facebook post caption about: '{topic}'. "
-            "Keep it under 100 words, informative, with relevant hashtags and emojis."
+            f"Write an engaging, positive Facebook post caption about: '{topic}'. "
+            "STRICT RULES: Write entirely in Hindi using English letters/script (Hinglish). "
+            "Do NOT use Devanagari script. Do NOT write in pure English. "
+            "Use natural, conversational everyday Hindi. "
+            "Keep it under 3-4 sentences. Add matching emojis and 3-4 relevant hashtags at the end."
         )
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        print(f"Caption generate karne mein issue: {e}")
-        return f"Exploring {topic}! What are your thoughts on this? #Tech #AI #Innovation"
+        print(f"Caption generate error: {e}")
+        return "Har nayi subah ek nayi umeed aur nayi taazgi lekar aati hai! Apne sapno ke peeche mehnat karte raho. #NayiSubah #PositiveVibes #Motivation #DailyInspiration"
 
-def download_image(image_url, save_path="temp_post_image.jpg"):
-    """Image ko URL se local file mein download karta hai"""
-    print("Downloading generated image...")
-    res = requests.get(image_url, timeout=30)
-    if res.status_code == 200:
-        with open(save_path, "wb") as f:
-            f.write(res.content)
-        return save_path
-    else:
-        raise Exception(f"Image download fail ho gayi: HTTP {res.status_code}")
+def process_daily_image(ref_image_path):
+    """Reference photo return karta hai"""
+    print(f"Processing image using reference: {ref_image_path}...")
+    return ref_image_path
 
 def post_to_facebook(image_path, caption):
-    """Facebook Page ke Graph API photos endpoint par image aur caption post karta hai"""
+    """Facebook Page ke /{PAGE_ID}/photos endpoint par post karta hai"""
     print("Uploading to Facebook Page...")
-    
-    if not PAGE_ID or not PAGE_ACCESS_TOKEN:
-        raise ValueError("PAGE_ID ya PAGE_ACCESS_TOKEN environment variable set nahi hain.")
 
-    # Sahi Endpoint: {PAGE_ID}/photos ('me/photos' use nahi karna)
+    if not PAGE_ID or not PAGE_ACCESS_TOKEN:
+        raise ValueError("PAGE_ID ya PAGE_ACCESS_TOKEN environment variables set nahi hain.")
+
     url = f"https://graph.facebook.com/v20.0/{PAGE_ID}/photos"
 
     payload = {
@@ -66,26 +81,29 @@ def post_to_facebook(image_path, caption):
     return res
 
 def main():
-    # Aapka selected topic
-    topic = "Latest AI breakthroughs and humanoid robotics revolution"
-    print(f"Selected Topic: {topic}")
+    # 1. Reference photo select karo
+    ref_photo = pick_reference_image("references")
 
-    # Step 1: Caption generate karein
-    caption = generate_caption(topic)
-    print("Caption generated. Processing clean image...")
+    # 2. Hinglish theme select karo
+    themes = [
+        "Subah ki shuruat, positivity aur naye iraade",
+        "Zindagi ki khoobsurti aur self-growth",
+        "Aesthetic lifestyle, shanti aur confidence",
+        "Koshish aur sapno ko poora karne ki umeed",
+        "Muskurahat aur har din ko behtar banane ki soch"
+    ]
+    current_topic = random.choice(themes)
+    print(f"Today's Topic: {current_topic}")
 
-    # Step 2: Image provide/download karein (ya jahan se aapki image aati hai)
-    # Note: Agar image pehle se local path par hai toh direct wahi path pass karein
-    sample_image_url = "https://picsum.photos/1200/630"
-    image_path = download_image(sample_image_url, "clean_image.jpg")
+    # 3. Romanized Hindi caption generate karo
+    caption = generate_caption(current_topic)
+    print(f"Caption ready:\n{caption}\n")
 
-    # Step 3: Facebook Page par upload karein
-    try:
-        post_to_facebook(image_path, caption)
-    finally:
-        # Temp file clean up
-        if os.path.exists(image_path):
-            os.remove(image_path)
+    # 4. Image prepare karo
+    final_image = process_daily_image(ref_photo)
+
+    # 5. Facebook Page par upload karo
+    post_to_facebook(final_image, caption)
 
 if __name__ == "__main__":
     main()
