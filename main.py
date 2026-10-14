@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import urllib.parse
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
@@ -11,7 +12,6 @@ from PIL import Image
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAGE_ID = os.getenv("PAGE_ID")
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
 HISTORY_FILE = "posted_history.json"
 
 if GEMINI_API_KEY:
@@ -58,7 +58,7 @@ def pick_reference_image(folder_path="references"):
     available_photos = [p for p in all_photos if p not in history]
 
     if not available_photos:
-        print("Cycle reset ho raha hai...")
+        print("Saari photos post ho chuki hain. Cycle reset...")
         history = []
         available_photos = all_photos
 
@@ -71,18 +71,16 @@ def pick_reference_image(folder_path="references"):
     return full_path
 
 def describe_reference_and_make_prompt(ref_image_path, topic):
-    """Gemini 1.5 Flash se visual HD prompt banata hai"""
+    """Gemini se HD visual realism prompt banata hai"""
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         img = Image.open(ref_image_path)
         
         prompt = (
-            f"Analyze the facial appearance, hairstyle, skin tone, and overall aesthetic of the person in this image. "
-            f"Write a high-end photography prompt for a new scene themed around: '{topic}'. "
-            "Strict Instructions: Maintain the exact same facial identity, age, and features as the reference image. "
-            "Only change the posture, background, clothes, and lighting. "
-            "Style: DSLR 85mm portrait, f/1.8 aperture, natural sunlight, highly detailed skin texture, 4k ultra-realistic photo. "
-            "Keep the prompt under 50 words. Output ONLY the raw prompt."
+            f"Look at this person in the reference image. Describe their facial identity, hairstyle, and skin tone. "
+            f"Now write an ultra-realistic 4K photography prompt featuring this exact same person in a new scene about: '{topic}'. "
+            "Keep natural lighting, sharp focus, DSLR quality, highly detailed skin texture, realistic morning lifestyle. "
+            "Keep the prompt strictly under 40 words, comma-separated."
         )
         response = model.generate_content([prompt, img])
         img_prompt = response.text.strip().replace("\n", " ")
@@ -93,32 +91,24 @@ def describe_reference_and_make_prompt(ref_image_path, topic):
         return f"Hyper-realistic portrait photography, crisp focus, soft natural daylight, 8k resolution, cinematic lighting, themed on {topic}"
 
 def generate_ai_image(image_prompt, output_path="generated_post.jpg"):
-    """Hugging Face ke updated endpoint se image generate karta hai"""
-    print("Generating High-Quality image with FLUX.1...")
+    """High-Resolution Flux Engine se 1080x1080 sharp image generate karta hai"""
+    print("Generating High-Resolution photo...")
     
-    # Updated Hugging Face router URL (DNS resolution issue fixed)
-    api_url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {"inputs": image_prompt}
+    encoded_prompt = urllib.parse.quote(image_prompt)
+    seed = random.randint(10000, 999999)
+    # High-Definition Flux pipeline with no watermarks
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1080&model=flux&seed={seed}&nologo=true&enhance=true"
 
     session = get_retry_session()
-    response = session.post(api_url, headers=headers, json=payload, timeout=120)
-
-    # Fallback to direct inference host agar router busy ho
-    if response.status_code != 200:
-        fallback_url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
-        try:
-            response = session.post(fallback_url, headers=headers, json=payload, timeout=120)
-        except Exception:
-            pass
+    response = session.get(image_url, timeout=90)
 
     if response.status_code == 200:
         with open(output_path, "wb") as f:
             f.write(response.content)
-        print(f"HD Image generated and saved to {output_path}")
+        print(f"HD Image generated successfully and saved to {output_path}")
         return output_path
     else:
-        raise Exception(f"Image generation failed with status {response.status_code}: {response.text}")
+        raise Exception(f"Image generation failed with HTTP {response.status_code}")
 
 def generate_caption(topic):
     """Romanized Hindi (Hinglish) caption generate karta hai"""
@@ -138,7 +128,7 @@ def generate_caption(topic):
         return "Har nayi subah ek nayi umeed aur nayi taazgi lekar aati hai! Apne sapno ke peeche lagatar mehnat karte raho. ✨ #NayiSubah #PositiveVibes #DailyMotivation #SelfGrowth"
 
 def post_to_facebook(image_path, caption):
-    print("Uploading to Facebook Page...")
+    print("Uploading HD image to Facebook Page...")
 
     if not PAGE_ID or not PAGE_ACCESS_TOKEN:
         raise ValueError("PAGE_ID ya PAGE_ACCESS_TOKEN environment variables set nahi hain.")
