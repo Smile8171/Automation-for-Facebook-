@@ -1,39 +1,87 @@
 import os
+import json
 import random
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 import google.generativeai as genai
 
-# Environment Variables / GitHub Secrets
+# 1. Credentials
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAGE_ID = os.getenv("PAGE_ID")
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
+HISTORY_FILE = "posted_history.json"
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
+def get_retry_session():
+    """Network drop ya server error ke liye auto-retry session banata hai"""
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=2,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    return session
+
+def load_posted_history():
+    """Pichli post hui photos ki list load karta hai"""
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_posted_history(history):
+    """Post hone ke baad file name save karta hai"""
+    try:
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"History save notice: {e}")
+
 def pick_reference_image(folder_path="references"):
-    """Folder se image file pick karta hai"""
+    """Bina repeat kiye nayi photo select karta hai"""
     if not os.path.exists(folder_path):
         raise FileNotFoundError(f"Folder '{folder_path}' nahi mila!")
-    
+
     valid_exts = ('.jpg', '.jpeg', '.png', '.webp')
-    photos = [
-        os.path.join(folder_path, f) 
-        for f in os.listdir(folder_path) 
+    all_photos = [
+        f for f in os.listdir(folder_path)
         if f.lower().endswith(valid_exts)
     ]
-    
-    if not photos:
+
+    if not all_photos:
         raise ValueError(f"Folder '{folder_path}' mein koi photo nahi mili!")
-    
-    selected_photo = random.choice(photos)
-    print(f"Selected reference image: {selected_photo}")
-    return selected_photo
+
+    history = load_posted_history()
+
+    # Jo photos abhi tak post nahi hui hain
+    available_photos = [p for p in all_photos if p not in history]
+
+    # Agar saari photos post ho chuki hain, toh cycle reset kar do
+    if not available_photos:
+        print("Saari photos ek baar post ho chuki hain. Cycle reset kiya ja raha hai...")
+        history = []
+        available_photos = all_photos
+
+    chosen_file = random.choice(available_photos)
+    history.append(chosen_file)
+    save_posted_history(history)
+
+    full_path = os.path.join(folder_path, chosen_file)
+    print(f"Selected reference photo: {chosen_file} (Bachi hui: {len(available_photos) - 1})")
+    return full_path
 
 def generate_caption(topic):
-    """Romanized Hindi (Hinglish) mein caption generate karta hai"""
+    """Romanized Hindi (Hinglish) mein clean caption banata hai"""
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-1.5-flash-latest")
         prompt = (
             f"Write an engaging, positive Facebook post caption about: '{topic}'. "
             "STRICT RULES: Write entirely in Hindi using English letters/script (Hinglish). "
@@ -44,16 +92,11 @@ def generate_caption(topic):
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        print(f"Caption generate error: {e}")
-        return "Har nayi subah ek nayi umeed aur nayi taazgi lekar aati hai! Apne sapno ke peeche mehnat karte raho. #NayiSubah #PositiveVibes #Motivation #DailyInspiration"
-
-def process_daily_image(ref_image_path):
-    """Reference photo return karta hai"""
-    print(f"Processing image using reference: {ref_image_path}...")
-    return ref_image_path
+        print(f"Caption generate notice: {e}")
+        return "Har nayi subah ek nayi umeed aur nayi taazgi lekar aati hai! Apne sapno ke peeche lagatar mehnat karte raho. ✨ #NayiSubah #PositiveVibes #DailyMotivation #SelfGrowth"
 
 def post_to_facebook(image_path, caption):
-    """Facebook Page ke /{PAGE_ID}/photos endpoint par post karta hai"""
+    """Facebook Page ke /{PAGE_ID}/photos endpoint par image upload karta hai"""
     print("Uploading to Facebook Page...")
 
     if not PAGE_ID or not PAGE_ACCESS_TOKEN:
@@ -66,11 +109,11 @@ def post_to_facebook(image_path, caption):
         "access_token": PAGE_ACCESS_TOKEN
     }
 
+    session = get_retry_session()
+
     with open(image_path, "rb") as img_file:
-        files = {
-            "source": img_file
-        }
-        response = requests.post(url, data=payload, files=files, timeout=60)
+        files = {"source": img_file}
+        response = session.post(url, data=payload, files=files, timeout=60)
 
     res = response.json()
 
@@ -81,10 +124,10 @@ def post_to_facebook(image_path, caption):
     return res
 
 def main():
-    # 1. Reference photo select karo
-    ref_photo = pick_reference_image("references")
+    # 1. Non-repeating photo pick karo
+    image_to_post = pick_reference_image("references")
 
-    # 2. Hinglish theme select karo
+    # 2. Daily Hinglish theme
     themes = [
         "Subah ki shuruat, positivity aur naye iraade",
         "Zindagi ki khoobsurti aur self-growth",
@@ -92,18 +135,15 @@ def main():
         "Koshish aur sapno ko poora karne ki umeed",
         "Muskurahat aur har din ko behtar banane ki soch"
     ]
-    current_topic = random.choice(themes)
-    print(f"Today's Topic: {current_topic}")
+    topic = random.choice(themes)
+    print(f"Today's Topic: {topic}")
 
-    # 3. Romanized Hindi caption generate karo
-    caption = generate_caption(current_topic)
-    print(f"Caption ready:\n{caption}\n")
+    # 3. Caption taiyar karo
+    caption = generate_caption(topic)
+    print(f"Caption:\n{caption}\n")
 
-    # 4. Image prepare karo
-    final_image = process_daily_image(ref_photo)
-
-    # 5. Facebook Page par upload karo
-    post_to_facebook(final_image, caption)
+    # 4. Facebook par upload karo
+    post_to_facebook(image_to_post, caption)
 
 if __name__ == "__main__":
     main()
