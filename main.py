@@ -5,17 +5,12 @@ import urllib.parse
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
-import google.generativeai as genai
-from PIL import Image
 
 # 1. Credentials / Secrets
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PAGE_ID = os.getenv("PAGE_ID")
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 HISTORY_FILE = "posted_history.json"
-
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 def get_retry_session():
     session = requests.Session()
@@ -58,7 +53,7 @@ def pick_reference_image(folder_path="references"):
     available_photos = [p for p in all_photos if p not in history]
 
     if not available_photos:
-        print("Saari photos post ho chuki hain. Cycle reset...")
+        print("Cycle reset ho raha hai...")
         history = []
         available_photos = all_photos
 
@@ -70,25 +65,33 @@ def pick_reference_image(folder_path="references"):
     print(f"Selected reference photo: {chosen_file}")
     return full_path
 
-def describe_reference_and_make_prompt(ref_image_path, topic):
-    """Gemini se HD visual realism prompt banata hai"""
+def generate_caption(topic):
+    """Gemini API se Romanized Hindi (Hinglish) caption generate karta hai"""
+    fallback_caption = "Har nayi subah ek nayi umeed aur nayi taazgi lekar aati hai! Apne sapno ke peeche lagatar mehnat karte raho. ✨ #NayiSubah #PositiveVibes #DailyMotivation #SelfGrowth"
+    
+    if not GEMINI_API_KEY:
+        return fallback_caption
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    prompt = (
+        f"Write an engaging, positive Facebook post caption about: '{topic}'. "
+        "STRICT RULES: Write entirely in Hindi using English letters/script (Hinglish). "
+        "Do NOT use Devanagari script. Do NOT write in pure English. "
+        "Use natural, conversational everyday Hindi. "
+        "Keep it under 3-4 sentences. Add matching emojis and 3-4 relevant hashtags at the end."
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        img = Image.open(ref_image_path)
-        
-        prompt = (
-            f"Look at this person in the reference image. Describe their facial identity, hairstyle, and skin tone. "
-            f"Now write an ultra-realistic 4K photography prompt featuring this exact same person in a new scene about: '{topic}'. "
-            "Keep natural lighting, sharp focus, DSLR quality, highly detailed skin texture, realistic morning lifestyle. "
-            "Keep the prompt strictly under 40 words, comma-separated."
-        )
-        response = model.generate_content([prompt, img])
-        img_prompt = response.text.strip().replace("\n", " ")
-        print(f"Generated HD Prompt: {img_prompt}")
-        return img_prompt
+        session = get_retry_session()
+        res = session.post(url, json=payload, timeout=30).json()
+        text = res['candidates'][0]['content']['parts'][0]['text'].strip()
+        return text
     except Exception as e:
-        print(f"Prompt fallback: {e}")
-        return f"Hyper-realistic portrait photography, crisp focus, soft natural daylight, 8k resolution, cinematic lighting, themed on {topic}"
+        print(f"Caption generate notice: {e}")
+        return fallback_caption
 
 def generate_ai_image(image_prompt, output_path="generated_post.jpg"):
     """High-Resolution Flux Engine se 1080x1080 sharp image generate karta hai"""
@@ -96,7 +99,6 @@ def generate_ai_image(image_prompt, output_path="generated_post.jpg"):
     
     encoded_prompt = urllib.parse.quote(image_prompt)
     seed = random.randint(10000, 999999)
-    # High-Definition Flux pipeline with no watermarks
     image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1080&model=flux&seed={seed}&nologo=true&enhance=true"
 
     session = get_retry_session()
@@ -109,23 +111,6 @@ def generate_ai_image(image_prompt, output_path="generated_post.jpg"):
         return output_path
     else:
         raise Exception(f"Image generation failed with HTTP {response.status_code}")
-
-def generate_caption(topic):
-    """Romanized Hindi (Hinglish) caption generate karta hai"""
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        prompt = (
-            f"Write an engaging, positive Facebook post caption about: '{topic}'. "
-            "STRICT RULES: Write entirely in Hindi using English letters/script (Hinglish). "
-            "Do NOT use Devanagari script. Do NOT write in pure English. "
-            "Use natural, conversational everyday Hindi. "
-            "Keep it under 3-4 sentences. Add matching emojis and 3-4 relevant hashtags at the end."
-        )
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        print(f"Caption generate notice: {e}")
-        return "Har nayi subah ek nayi umeed aur nayi taazgi lekar aati hai! Apne sapno ke peeche lagatar mehnat karte raho. ✨ #NayiSubah #PositiveVibes #DailyMotivation #SelfGrowth"
 
 def post_to_facebook(image_path, caption):
     print("Uploading HD image to Facebook Page...")
@@ -164,8 +149,8 @@ def main():
     topic = random.choice(themes)
     print(f"Today's Topic: {topic}")
 
-    hd_prompt = describe_reference_and_make_prompt(ref_photo, topic)
-    img_path = generate_ai_image(hd_prompt, "generated_post.jpg")
+    img_prompt = f"portrait photo of person from {os.path.basename(ref_photo)}, natural morning daylight, sharp focus, 8k resolution, cinematic aesthetic, lifestyle scene about {topic}"
+    img_path = generate_ai_image(img_prompt, "generated_post.jpg")
     caption = generate_caption(topic)
     print(f"Caption ready:\n{caption}\n")
 
